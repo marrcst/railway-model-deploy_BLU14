@@ -52,7 +52,7 @@ DB = SqliteDatabase('predictions.db')
 
 
 class Prediction(Model):
-    observation_id = IntegerField(unique=True)
+    observation_id = CharField(unique=True)
     observation = TextField()
     proba = FloatField()
     true_class = IntegerField(null=True)
@@ -90,6 +90,10 @@ with open(os.path.join('model_data', 'key_types.pickle'), 'rb') as fh:
 
 
 #input validation #############################################################################
+
+cat_variables = ["sex","race", "workclass", "education","marital-status"]
+num_variables = ["capital-gain","capital-loss"]
+
 def check_request(request):
     '''
     Initial request check
@@ -155,15 +159,15 @@ def check_values(observation):
         - error message: empty if all provided columns are valid, False otherwise
     '''
 
-    cat_variables = ["sex","race", "workclass", "education","marital-status"]
-    num_variables = ["capital-gain","capital-loss"]
+    # cat_variables = ["sex","race", "workclass", "education","marital-status"]
+    # num_variables = ["capital-gain","capital-loss"]
     
 
     for key in key_types.keys():
         #check in categorical values:
         if key in cat_variables:
             if observation[key] not in key_types[key]:
-                error = f"Invalid {key} input: {observation[key]}"
+                error = f"Invalid {key} input: {observation[key].capitalize()}"
                 return False, error
             
         #check in specified numerical values
@@ -190,20 +194,27 @@ app = Flask(__name__)
 def predict():
     obs_dict = request.get_json()
 
+    #check presence of id and data in input
     request_ok, error = check_request(obs_dict)
     if not request_ok:
         response =  {"error": error}
         return jsonify(response)
     
-    #get id and data of dictionary as variables
+    #store id and data of dictionary as variables
     obs_id = obs_dict["observation_id"]
     obs_data = obs_dict["data"]
 
+    #check presence of required columns in input
     cols_ok, error = check_cols(obs_dict)
     if not cols_ok:
         response = {"error": error}
         return jsonify(response)
     
+    #lowercase input of categorical variables AFTER checking that all input columns match the expected columns
+    for cat_key in cat_variables:
+         obs_data[cat_key] = obs_data[cat_key].lower()
+    
+    #check in input values are valid
     vals_okay, error = check_values(obs_data)
     if not vals_okay:
         response = {"error": error}
@@ -213,6 +224,8 @@ def predict():
     #If everythings passes, calculate prediction and proba
     #Get data and turn into dataframe
     request_pd = pd.DataFrame([obs_data], columns = columns).astype(dtypes)
+
+    request_pd[cat_variables] = lower_cat_features(request_pd[cat_variables])
 
     #prepare response 
     proba = float(pipeline.predict_proba(request_pd)[0, 1])
@@ -224,7 +237,7 @@ def predict():
     
     p = Prediction(observation_id = obs_id,
                    observation = obs_data,
-                   proba = prediction)
+                   proba = proba)
 
     try:
         p.save()
@@ -247,7 +260,7 @@ def update():
         return jsonify(model_to_dict(p))
     
     except Prediction.DoesNotExist:
-        error_msg = f"Observation id '{obs_dict["observation_id"]}' does not exist!"
+        error_msg = f"Observation id '{obs_dict['observation_id']}' does not exist!"
         return jsonify({"error": error_msg})
 
 
@@ -256,7 +269,8 @@ def update():
 #     # app.run()
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))
+    app.run(host="0.0.0.0", port = port)
 
 
 
