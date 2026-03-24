@@ -172,7 +172,7 @@ def check_values(observation):
             
         #check in specified numerical values
         elif key in num_variables:
-            if observation[key] < 0:
+            if observation[key] < key_types[key]:
                 error = f"{key} input out of bounds: {observation[key]}"
                 return False, error
         
